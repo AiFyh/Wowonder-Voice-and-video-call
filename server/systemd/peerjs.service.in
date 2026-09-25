@@ -1,0 +1,24 @@
+[Unit]
+Description=PeerJS signaling server (self-hosted WebRTC signaling)
+Documentation=https://peerjs.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 运行用户：建议与 Web 服务器一致（Debian/Ubuntu: www-data；宝塔/CentOS: www）
+User=@RUN_USER@
+Group=@RUN_USER@
+WorkingDirectory=@APP_DIR@
+ExecStart=@NODE_BIN@ @APP_DIR@/server.js
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=peerjs
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

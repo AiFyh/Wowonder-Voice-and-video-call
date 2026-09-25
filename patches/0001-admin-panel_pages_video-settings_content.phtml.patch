@@ -1,0 +1,51 @@
+--- a/admin-panel/pages/video-settings/content.phtml
++++ b/admin-panel/pages/video-settings/content.phtml
+@@ -273,6 +273,30 @@
+                     </form>
+                 </div>
+             </div>
++            <div class="card">
++                <div class="card-body">
++                    <h6 class="card-title">自建 P2P 通话（WebRTC / PeerJS）</h6>
++                    <form class="p2p-settings" method="POST">
++                        <div class="float-left">
++                            <label for="p2p_chat_video" class="main-label">自建 P2P 通道</label>
++                            <br><small class="admin-info">不依赖 Agora/Twilio：浏览器点对点直连，跨网打洞不通时自动走本机 TURN 中继（UDP 3478 / 自建 coturn）。<br>
++                            请注意，你只能同时选择一个供应商，启用本项将替换 Agora / Twilio。.</small>
++                        </div>
++                        <div class="form-group float-right switcher">
++                            <input type="hidden" name="p2p_chat_video" value="0" />
++                            <input type="checkbox" name="p2p_chat_video" id="chck-p2p_chat_video" value="1" <?php echo ($wo['config']['p2p_chat_video'] == 1) ? 'checked': '';?>>
++                            <label for="chck-p2p_chat_video" class="check-trail"><span class="check-handler"></span></label>
++                        </div>
++                        <div class="clearfix"></div>
++                        <hr>
++                        <div class="alert alert-info">
++                            中继服务由本站自建（coturn），通话时按次签发 10 分钟有效凭据，无需填写任何密钥。<br>
++                            若用户反馈无法接通，请检查服务器 <b>UDP 3478</b> 与 <b>UDP 50000-50100</b> 是否放通、coturn 服务是否运行。
++                        </div>
++                        <input type="hidden" name="hash_id" value="<?php echo Wo_CreateSession();?>">
++                    </form>
++                </div>
++            </div>
+         </div>
+         <div class="clearfix"></div>
+     </div>
+@@ -296,10 +320,17 @@
+         if (configName == 'twilio_video_chat') {
+             if (setToTrue == 1) {
+                 $('input[name=agora_chat_video]').prop('checked', false);
++                $('input[name=p2p_chat_video]').prop('checked', false);
+             }
+         } else if (configName == 'agora_chat_video') {
+             if (setToTrue == 1) {
+                 $('input[name=twilio_video_chat]').prop('checked', false);
++                $('input[name=p2p_chat_video]').prop('checked', false);
++            }
++        } else if (configName == 'p2p_chat_video') {
++            if (setToTrue == 1) {
++                $('input[name=twilio_video_chat]').prop('checked', false);
++                $('input[name=agora_chat_video]').prop('checked', false);
+             }
+         }
+         $.post( Wo_Ajax_Requests_File() + '?f=admin_setting&s=update_general_setting', objData);

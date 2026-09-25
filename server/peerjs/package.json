@@ -1,0 +1,16 @@
+{
+  "name": "wowonder-p2p-call-signaling",
+  "version": "1.0.0",
+  "private": true,
+  "description": "自建 PeerJS 信令服务：替代公共云 0.peerjs.com，只监听 127.0.0.1:9000，由站点 Web 服务器反代为 wss://<域名>/peerjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "dependencies": {
+    "peer": "^1.0.2"
+  }
+}

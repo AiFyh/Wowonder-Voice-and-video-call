@@ -1,0 +1,25 @@
+/* ============================================================================
+ * 通话相关样式（本项目新增）—— 追加到主题 stylesheet/style.css 末尾即可
+ * ============================================================================ */
+
+/* ---------- ① 通话中的时长胶囊（语音弹窗内 / 视频页左下角）---------- */
+/* 通话时长显示 2026-09-25：语音通话显示在弹窗内，视频通话显示在画面左下角。
+   格式 MM:SS，满 1 小时才显示 HH:MM:SS；纯数字，不涉及语言键。 */
+.p2p_call_duration {display: inline-block;padding: 2px 10px;border-radius: 999px;font-size: 13px;line-height: 1.6;letter-spacing: .5px;color: #fff;background: rgba(0,0,0,.55);font-variant-numeric: tabular-nums;}
+#re-talking-modal .p2p_call_duration {margin: 0 0 10px;}
+.video-con .p2p_call_duration {position: absolute;left: 15px;bottom: 15px;z-index: 10000;margin: 0;font-size: 14px;padding: 4px 12px;background: rgba(0,0,0,.6);}
+@media (max-width: 520px) {
+	.video-con .p2p_call_duration {left: 10px;bottom: 12px;font-size: 12px;padding: 3px 9px;}
+}
+
+/* ---------- ② 聊天记录里的通话记录行（type_two=call_log 的系统行）---------- */
+/* 聊天记录里的通话记录行 2026-09-25：通话结束后 xhr/call_log.php 写入一条 type_two=call_log
+   的消息，消息页与聊天小窗都渲染成居中的小字系统行（文案 = 语言键 call_ended + 时长）。
+   颜色用 inherit + 半透明灰底，浅色/深色主题下都能看清；不使用气泡/头像/悬停菜单。 */
+.message-contnaier.call-log-contnaier {justify-content: center;}
+.messages-wrapper.call-log-line {display: block;float: none;width: 100%;max-width: 100%;margin: 6px auto 8px;text-align: center;background: none;box-shadow: none;}
+.messages-wrapper.call-log-line .call-log-text {display: inline-block;max-width: 90%;padding: 3px 12px;border-radius: 999px;font-size: 12px;line-height: 1.7;color: inherit;opacity: .75;background: rgba(127,127,127,.16);font-variant-numeric: tabular-nums;}
+.messages-wrapper.call-log-line .call-log-text svg {vertical-align: -2px;margin-right: 4px;}
+@media (max-width: 520px) {
+	.messages-wrapper.call-log-line .call-log-text {font-size: 11px;padding: 3px 10px;}
+}

@@ -1,0 +1,20 @@
+--- a/themes/Sean/javascript/script.js
++++ b/themes/Sean/javascript/script.js
+@@ -2555,7 +2555,7 @@
+   });
+ }
+ function Wo_GenerateVideoCall(user_id1, user_id2) {
+-  $.get(Wo_Ajax_Requests_File(), {f:'create_new_video_call', 'new': 'true', user_id1: user_id1, user_id2:user_id2}, function(data) {
++  $.get(Wo_Ajax_Requests_File(), {f:'create_new_video_call', 'new': 'true', user_id1: user_id1, user_id2:user_id2, hash_id: $('.main_session').val()}, function(data) {
+       if (data.status == 200) {
+ 		  if (node_socket_flow == "1") { 
+             socket.emit("user_notification", { to_id: user_id2, user_id: _getCookie("user_id"), type: "create_video" });
+@@ -2579,7 +2579,7 @@
+ }
+ 
+ function Wo_GenerateVoiceCall(user_id1, user_id2) {
+-  $.get(Wo_Ajax_Requests_File(), {f:'create_new_audio_call', 'new': 'true', user_id1: user_id1, user_id2:user_id2}, function(data) {
++  $.get(Wo_Ajax_Requests_File(), {f:'create_new_audio_call', 'new': 'true', user_id1: user_id1, user_id2:user_id2, hash_id: $('.main_session').val()}, function(data) {
+       if (data.status == 200) {
+ 		  if (node_socket_flow == "1") { 
+             socket.emit("user_notification", { to_id: user_id2, user_id: _getCookie("user_id"), type: "create_video" });

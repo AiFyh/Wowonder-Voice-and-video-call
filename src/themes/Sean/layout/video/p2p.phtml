@@ -1,0 +1,291 @@
+<?php
+/**
+ * P2P(WebRTC / PeerJS) 视频通话页 —— 自建 PeerJS 信令 + 自建 coturn(STUN/TURN)，不依赖 Agora/Twilio
+ *
+ * $wo['video_call']: room(房间号) / user(1=被叫 2=主叫) / call_id
+ *
+ * 兜底 ICE 服务器（可选）：在 Wo_Config 里加一项 p2p_stun_fallback，例如
+ *     stun:turn.example.com:3478
+ * 正常路径由 xhr/p2p_turn.php 动态下发「STUN + TURN（10 分钟临时账号）」列表，
+ * 这里只是它请求失败时的兜底；留空则完全依赖 p2p_turn。
+ */
+$p2p_room = isset($wo['video_call']['room']) ? $wo['video_call']['room'] : '';
+$p2p_role = isset($wo['video_call']['user']) ? (int) $wo['video_call']['user'] : 0;
+$p2p_call = isset($wo['video_call']['call_id']) ? (int) $wo['video_call']['call_id'] : 0;
+$p2p_ice_fallback = array();
+if (!empty($wo['config']['p2p_stun_fallback'])) {
+    $p2p_ice_fallback[] = array('urls' => $wo['config']['p2p_stun_fallback']);
+}
+// 通话记录（聊天里显示的时长）要对端 user_id：role 1=被叫(自己是 to_id) -> 对端 from_id；role 2=主叫 -> 对端 to_id
+$p2p_peer = 0;
+if ($p2p_role === 1 && isset($wo['video_call']['from_id'])) {
+    $p2p_peer = (int) $wo['video_call']['from_id'];
+} elseif ($p2p_role === 2 && isset($wo['video_call']['to_id'])) {
+    $p2p_peer = (int) $wo['video_call']['to_id'];
+}
+// 前端文案统一取自语言库，避免硬编码
+$p2p_lang = array(
+    'call_ended'          => $wo['lang']['call_ended'],
+    'calling_desc'        => $wo['lang']['calling_desc'],
+    'media_access_failed' => $wo['lang']['media_access_failed'],
+    'call_already_active' => $wo['lang']['call_already_active'],
+    'click_to_play_media' => $wo['lang']['click_to_play_media'],
+);
+?>
+<script src="<?php echo $wo['config']['theme_url'];?>/javascript/peerjs.min.js?version=<?php echo $wo['config']['version'];?>"></script>
+<script>
+(function () {
+    var ROOM    = <?php echo json_encode($p2p_room); ?>;
+    var ROLE    = <?php echo (int) $p2p_role; ?>;   // 1 被叫 / 2 主叫
+    var CALL_ID = <?php echo (int) $p2p_call; ?>;
+    var PEER_ID = <?php echo (int) $p2p_peer; ?>;   // 对端 user_id：通话结束后把时长写进聊天记录用
+    var SITE    = <?php echo json_encode($wo['config']['site_url']); ?>;
+    // ICE：正常路径由 xhr/p2p_turn.php 下发「自建 coturn 的 STUN + TURN（临时账号）」（见文件末尾的 $.get）。
+    // 这里的兜底列表来自 Wo_Config 的 p2p_stun_fallback（可留空）。
+    // 不要再写公共 STUN：stun.l.google.com 在大陆网络下不可达。
+    var ICE     = { iceServers: <?php echo json_encode($p2p_ice_fallback); ?> };
+    var L       = <?php echo json_encode($p2p_lang); ?>;
+
+    var peer = null, localStream = null, call = null, ended = false, retry = 0;
+    var dc = null, dcReady = false, leaving = false;
+
+    function log(m) { if (window.console) { console.log('[P2P] ' + m); } }
+    function note(m) { $('#remote-media').html('<h3>' + m + '</h3>'); }
+    function fail(m) { $('#remote-media').html('<h3 class="text-danger">' + m + '</h3>'); }
+
+    // ---- 通话时长：媒体接通（收到对方画面）后开始计时，挂断/结束时停表 ----
+    var timerTick = null, timerStart = 0;
+    function fmtDuration(sec) {
+        var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+        function pad(n) { return (n < 10 ? '0' : '') + n; }
+        return (h > 0 ? pad(h) + ':' : '') + pad(m) + ':' + pad(s);   // 满 1 小时才显示时位
+    }
+    function startCallTimer() {
+        if (timerTick) { return; }
+        timerStart = Date.now();
+        $('#p2p-call-duration').text('00:00').removeClass('hidden');
+        timerTick = setInterval(function () {
+            $('#p2p-call-duration').text(fmtDuration(Math.floor((Date.now() - timerStart) / 1000)));
+        }, 1000);
+        log('通话计时开始');
+    }
+    function stopCallTimer() {
+        if (timerTick) { clearInterval(timerTick); timerTick = null; }
+    }
+
+    // ---- 通话结束后把时长写进聊天记录（xhr/call_log.php -> 一条 type_two=call_log 的消息）----
+    // 只有"通话真正接通"（已开始计时）才记录；双方都会上报，服务端用房间号去重成一条。
+    var logged = false;
+    function callSeconds() {
+        return timerStart ? Math.max(0, Math.round((Date.now() - timerStart) / 1000)) : 0;
+    }
+    function reportCallLog(cb) {
+        var secs = callSeconds();
+        if (logged || !secs || !PEER_ID) { cb(); return; }
+        logged = true;
+        var finished = false;
+        function finish() { if (!finished) { finished = true; cb(); } }
+        try {
+            $.get(Wo_Ajax_Requests_File(), { f: 'call_log', to_id: PEER_ID, room: ROOM, duration: secs }).always(finish);
+        } catch (e) { finish(); }
+        setTimeout(finish, 1500);   // 网络慢时最多等 1.5 秒，不拖住离开通话页
+    }
+
+    function cleanup(redirect) {
+        if (ended) { return; }
+        ended = true;
+        stopCallTimer();
+        try { if (dc && dc.open) { dc.close(); } } catch (e) {}
+        try { if (call) { call.close(); } } catch (e) {}
+        try { if (peer) { peer.destroy(); } } catch (e) {}
+        if (localStream) { localStream.getTracks().forEach(function (t) { t.stop(); }); }
+        if (redirect) { window.location.href = SITE; }
+    }
+
+    // 短促提示音（结束通话用，不依赖额外音频文件）
+    function beep() {
+        try {
+            var Ctx = window.AudioContext || window.webkitAudioContext;
+            if (!Ctx) { return; }
+            var ctx = new Ctx(), o = ctx.createOscillator(), g = ctx.createGain();
+            o.type = 'sine';
+            o.frequency.value = 660;
+            g.gain.value = 0.12;
+            o.connect(g);
+            g.connect(ctx.destination);
+            o.start();
+            setTimeout(function () { try { o.stop(); ctx.close(); } catch (e) {} }, 350);
+        } catch (e) {}
+    }
+
+    // 对方挂断：提示 + 提示音，随后回到站点
+    function remoteHangup() {
+        if (ended || leaving) { return; }
+        leaving = true;
+        log('对方已挂断');
+        note(L.call_ended);
+        beep();
+        setTimeout(function () { reportCallLog(function () { cleanup(true); }); }, 1200);
+    }
+
+    // 数据通道：双方各建一条，挂断时发 bye 通知对端（PeerJS 的媒体连接不会通知对端）
+    function bindData(conn) {
+        dc = conn;
+        conn.on('open', function () { dcReady = true; });
+        conn.on('data', function (d) { if (d && d.bye) { remoteHangup(); } });
+        conn.on('close', function () { if (dcReady) { remoteHangup(); } });
+        conn.on('error', function (e) { log('data error ' + e); });
+    }
+
+    function openData(id) {
+        if (!id || !peer) { return; }
+        try { bindData(peer.connect(id, { reliable: true })); } catch (e) { log('data connect failed'); }
+    }
+
+    // 本地挂断：先发 bye，再清理
+    function hangup() {
+        try { if (dc && dc.open) { dc.send({ bye: 1 }); } } catch (e) {}
+        $.get(Wo_Ajax_Requests_File(), { f: 'cancel_call' }, function () {});
+        reportCallLog(function () { cleanup(true); });
+    }
+
+    // ICE 兜底：对端直接关闭页面/断网时，媒体连接会变成 disconnected，PeerJS 自身不处理该状态
+    function watchIce(c) {
+        var pc = c.peerConnection;
+        if (!pc) { return; }
+        function check() {
+            if (ended) { return; }
+            var s = pc.connectionState || pc.iceConnectionState;
+            if (s === 'connected' || s === 'completed') { tuneVideo(c); }   // 协商完成后通常才能设置成功
+            if (s === 'failed' || s === 'closed') {
+                remoteHangup();
+            } else if (s === 'disconnected') {
+                setTimeout(function () {
+                    if (ended) { return; }
+                    var s2 = pc.connectionState || pc.iceConnectionState;
+                    if (s2 !== 'connected' && s2 !== 'completed') { remoteHangup(); }
+                }, 5000);
+            }
+        }
+        try {
+            // 用 addEventListener，避免覆盖 PeerJS 内部的 oniceconnectionstatechange
+            pc.addEventListener('iceconnectionstatechange', check);
+            pc.addEventListener('connectionstatechange', check);
+        } catch (e) {}
+    }
+
+    // 自适应画质：这里只设"上限"，实际码率由 WebRTC 按实时带宽自动升降。
+    // degradationPreference=maintain-framerate：网速慢时自动降分辨率保流畅（画面变糊但不卡）。
+    var VIDEO_MAX_BPS = 1500000;   // 720p 的清晰上限，约 1.5 Mbps
+    var capDone = false;
+    function tuneVideo(c) {
+        var pco = c && c.peerConnection;
+        if (!pco || capDone) { return; }
+        var done = 0;
+        pco.getSenders().forEach(function (s) {
+            if (!s.track || s.track.kind !== 'video') { return; }
+            try {   // 码率上限：低带宽时 WebRTC 会自己往下调，这里只是天花板
+                var p = s.getParameters();
+                if (!p.encodings || !p.encodings.length) { p.encodings = [{}]; }
+                p.encodings[0].maxBitrate = VIDEO_MAX_BPS;
+                s.setParameters(p);
+                done++;
+            } catch (e) { log('码率上限设置暂不可用: ' + e); }
+            try {   // 保帧率 -> 弱网自动降分辨率/清晰度
+                var p2 = s.getParameters();
+                p2.degradationPreference = 'maintain-framerate';
+                s.setParameters(p2);
+            } catch (e2) {}
+        });
+        if (done) { capDone = true; log('画质上限已设为 1.5Mbps（自动自适应）'); }
+    }
+
+    function bind(c) {
+        call = c;
+        tuneVideo(c);       // 画质上限（自适应）
+        openData(c.peer);   // 通知通道：对端挂断时立即收到 bye
+        watchIce(c);        // 兜底：对端掉线/直接关页面
+        c.on('stream', function (remote) {
+            $('#remote-media').empty().append('<video id="p2p-remote" class="videostream" autoplay playsinline webkit-playsinline></video>');
+            var v = document.getElementById('p2p-remote');
+            v.srcObject = remote;
+            var p = v.play();
+            if (p && p.catch) {
+                p.catch(function () {
+                    $('#remote-media').append('<div class="alert alert-info">' + L.click_to_play_media + '</div>');
+                });
+            }
+            startCallTimer();   // 对端画面已到：开始显示通话时长
+        });
+        c.on('close', function () { remoteHangup(); });
+        c.on('error', function (e) { log('call error ' + e); });
+    }
+
+    function makePeer(id, cb) {
+        // 信令走自建服务：wss://<站点域名>/peerjs → Apache 反代到本机 127.0.0.1:9000（systemd 服务 peerjs）
+        // 不再使用公共云 0.peerjs.com：大陆网络下它经常很慢甚至连不上，表现就是通话一直停在"请稍候"
+        peer = new Peer(id, { host: location.hostname, port: (location.protocol === 'https:' ? 443 : 80), secure: (location.protocol === 'https:'), key: 'peerjs', path: '/', config: ICE });
+        peer.on('open', function () { log('信令已连接'); if (cb) { cb(); } });
+        peer.on('call', function (c) { c.answer(localStream); bind(c); });
+        peer.on('connection', function (conn) { bindData(conn); });
+        peer.on('error', function (e) {
+            log('peer error ' + e.type);
+            if (e.type === 'peer-unavailable' && ROLE === 1 && retry < 20) {
+                retry++;
+                setTimeout(join, 2000);
+            } else if (e.type === 'unavailable-id') {
+                fail(L.call_already_active);
+            }
+        });
+        peer.on('disconnected', function () { try { peer.reconnect(); } catch (e) {} });
+    }
+
+    function own() {   // 主叫：占住房间号，等待被叫接入
+        makePeer(ROOM, function () { note(L.calling_desc); });
+    }
+
+    function join() {  // 被叫：主动呼叫房间，对方未就绪则重试
+        if (ended) { return; }
+        if (!peer || peer.destroyed) {
+            makePeer(null, function () {
+                var c = peer.call(ROOM, localStream);
+                if (c) { bind(c); }
+            });
+        } else {
+            var c2 = peer.call(ROOM, localStream);
+            if (c2) { bind(c2); }
+        }
+    }
+
+    function start() {
+        // 采集优先 720p@30（快网能出清晰画面）；摄像头/设备不支持时浏览器会自动降档。
+        // 真正的"看网速自动调整"由 WebRTC 完成：码率随带宽估计自动升降，弱网自动降分辨率。
+        var CONS = {
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
+            audio: true
+        };
+        navigator.mediaDevices.getUserMedia(CONS).then(function (s) {
+            localStream = s;
+            var lv = document.getElementById('p2p-local');
+            lv.srcObject = s;
+            lv.muted = true;
+            lv.play().catch(function () {});
+            $('.end_vdo_call').removeClass('hidden');
+            if (ROLE === 2) { own(); } else { join(); }
+        }).catch(function (e) {
+            fail(L.media_access_failed + '（' + e.name + '）');
+        });
+    }
+
+    $(document).on('click', '.end_vdo_call', function (e) { e.preventDefault(); hangup(); });
+    $(window).on('beforeunload', function () { hangup(); });
+
+    $.get(Wo_Ajax_Requests_File(), { f: 'p2p_turn' }, function (d) {
+        if (d && d.servers && d.servers.length) {
+            ICE.iceServers = ICE.iceServers.concat(d.servers);
+            log('TURN 已就绪');
+        }
+        start();
+    }).fail(function () { start(); });
+})();
+</script>

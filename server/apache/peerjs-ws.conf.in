@@ -1,0 +1,26 @@
+# 自建 PeerJS 信令服务反向代理（Apache）
+#
+#   浏览器 → wss://<站点域名>/peerjs → Apache(443) → ws://127.0.0.1:9000/peerjs
+#
+# 用法：把本文件放进该站点的 vhost 配置目录（宝塔面板的官方扩展挂载点是
+#   /www/server/panel/vhost/apache/extension/<域名>/ ，放这里不会被面板重写覆盖），
+#   然后重载 Apache。宝塔的 Apache 用：
+#   /www/server/apache/bin/apachectl -k graceful
+#
+# 前置条件：必须启用 mod_proxy 与 mod_proxy_wstunnel（WebSocket），用
+#   httpd -M | grep -E 'proxy|wstunnel'  确认。
+#
+# 只转发 SDP/ICE 信令，媒体不经此处（媒体走 P2P 直连或 coturn 中继）。
+<IfModule mod_proxy.c>
+    ProxyPreserveHost On
+
+    # 1) HTTP 端点：客户端不指定 id 时（new Peer() 无参）会 GET /peerjs/id 取一个随机 id，
+    #    必须用 http:// 转发，否则不被 mod_proxy_wstunnel 接受
+    ProxyPass        /peerjs/id http://127.0.0.1:9000/peerjs/id retry=0
+    ProxyPassReverse /peerjs/id http://127.0.0.1:9000/peerjs/id
+
+    # 2) WebSocket 端点：信令主通道（SDP/ICE 转发）。
+    #    retry=0 让后端重启时立刻恢复，不会长时间 503
+    ProxyPass        /peerjs ws://127.0.0.1:9000/peerjs retry=0
+    ProxyPassReverse /peerjs ws://127.0.0.1:9000/peerjs
+</IfModule>

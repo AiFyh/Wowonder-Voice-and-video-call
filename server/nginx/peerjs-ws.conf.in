@@ -1,0 +1,28 @@
+# 自建 PeerJS 信令服务反向代理（Nginx）
+#
+#   浏览器 → wss://<站点域名>/peerjs → Nginx(443) → ws://127.0.0.1:9000/peerjs
+#
+# 用法：把下面两段放进该站点的 server { } 里（宝塔面板：网站 → 设置 → 配置文件），
+#       然后 nginx -t && nginx -s reload。
+#
+# 注意：
+#   1) proxy_pass 末尾不要带路径，这样 /peerjs 的 URI 会原样转发给后端；
+#   2) WebSocket 必须带 Upgrade/Connection 两个头，否则握手会是 400；
+#   3) 信令连接是长连接，proxy_read_timeout 要给足（下面 3600s）。
+
+location = /peerjs/id {
+    proxy_pass http://127.0.0.1:9000/peerjs/id;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+
+location /peerjs {
+    proxy_pass http://127.0.0.1:9000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+}

@@ -1,0 +1,31 @@
+--- a/xhr/create_new_video_call.php
++++ b/xhr/create_new_video_call.php
+@@ -15,7 +15,27 @@
+     $user_2       = Wo_UserData(Wo_Secure($_GET['user_id2']));
+     $room_script  = sha1(rand(1111111, 9999999999));
+ 
+-    if ($wo['config']['agora_chat_video'] == 1) {
++    if ($wo['config']['p2p_chat_video'] == 1) {
++        // 自建 WebRTC P2P 通道（PeerJS + 自建 TURN），只需 room_name，不生成第三方 token
++        $room_script = 'seosq-' . substr(md5(uniqid(mt_rand(), true)), 0, 10);
++        $insertData  = Wo_CreateNewVideoCall(array(
++            'from_id' => Wo_Secure($_GET['user_id1']),
++            'to_id' => Wo_Secure($_GET['user_id2']),
++            'room_name' => $room_script,
++            'access_token' => '',
++            'access_token_2' => ''
++        ));
++        if ($insertData > 0) {
++            $data = array(
++                'status' => 200,
++                'id' => $insertData,
++                'url' => $wo['config']['site_url'] . '/video-call/' . $insertData,
++                'html' => Wo_LoadPage('modals/calling'),
++                'text_no_answer' => $wo['lang']['no_answer'],
++                'text_please_try_again_later' => $wo['lang']['please_try_again_later']
++            );
++        }
++    } elseif ($wo['config']['agora_chat_video'] == 1) {
+         $wo['AgoraToken'] = null;
+         if (!empty($wo['config']['agora_chat_app_certificate'])) {
+             include_once 'assets/libraries/AgoraDynamicKey/src/RtcTokenBuilder.php';

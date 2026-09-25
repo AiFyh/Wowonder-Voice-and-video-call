@@ -1,0 +1,45 @@
+# coturn（STUN/TURN 中继）配置示例
+#
+#   复制到 /etc/coturn/turnserver.conf，按下面的说明改 4 处，然后 systemctl restart coturn。
+#
+#   作用：同一台 coturn 同时提供两种服务 ——
+#     · STUN（3478/udp）：帮浏览器拿到自己的公网映射地址，尽量走 P2P 直连；
+#     · TURN（3478/udp + 中继端口）：直连打不通时（对称 NAT、企业网、部分移动网络）中转媒体。
+#
+#   站点侧 xhr/p2p_turn.php 会用下面这个 static-auth-secret 现场签发「10 分钟有效的临时账号」，
+#   前端拿到后交给 WebRTC，所以不需要在配置里写死用户密码。
+
+# ---------- 1) 监听端口与地址（改成你的机器）----------
+listening-port=3478
+listening-ip=<内网IP>            # 例：10.0.0.5（云主机内网地址，用 ip -o -4 addr 查）
+relay-ip=<内网IP>                # 与 listening-ip 相同即可
+# external-ip：公网IP/内网IP。云主机有 NAT 时必须写，否则中继分配的候选地址是内网地址、对端连不上
+external-ip=<公网IP>/<内网IP>
+
+# ---------- 2) 中继端口范围（云安全组要放行这一段 UDP）----------
+min-port=50000
+max-port=50100
+
+# ---------- 3) 认证（临时账号）----------
+fingerprint
+lt-cred-mech
+use-auth-secret
+# 生成：openssl rand -hex 32
+# ⚠ 站点侧读取顺序：/etc/turn-rest-secret → /etc/coturn/turn-rest-secret → 本文件
+#   站点读到的那个值必须与这里完全一致，否则 coturn 会拒绝临时账号
+#   （症状：直连能通，弱网/对称 NAT 下打不通中继）。推荐做法：
+#     printf '%s' '<同一个密钥>' > /etc/turn-rest-secret
+#     chown root:<web用户> /etc/turn-rest-secret && chmod 640 /etc/turn-rest-secret
+static-auth-secret=<用 openssl rand -hex 32 生成>
+
+# ---------- 4) realm 与安全项 ----------
+realm=<你的域名>                  # 例：example.com
+no-cli
+no-multicast-peers
+stale-nonce
+
+# ---------- 可选：日志 ----------
+# 默认无日志时排查中继用量可以看 ss -unap | grep -E ':(500[0-9][0-9]|50100)'
+# 需要正式日志时打开下面两行（目录需存在且 coturn 用户可写）：
+# log-file=/var/log/turnserver.log
+# simple-log

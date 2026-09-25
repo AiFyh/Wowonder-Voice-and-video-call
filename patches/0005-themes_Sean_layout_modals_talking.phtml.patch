@@ -1,0 +1,260 @@
+--- a/themes/Sean/layout/modals/talking.phtml
++++ b/themes/Sean/layout/modals/talking.phtml
+@@ -6,6 +6,8 @@
+ 				<img src="<?php echo $wo['incall']['in_call_user']['avatar'];?>" alt="">
+ 				<h4><?php echo $wo['incall']['in_call_user']['name'];?></h4>
+ 				<p><?php echo $wo['lang']['audio_call_desc'];?> <?php echo $wo['incall']['in_call_user']['username'];?></p>
++				<?php /* 通话时长：媒体接通后由下方脚本 startCallTimer() 开始计时（纯数字，不涉及翻译） */ ?>
++				<div id="p2p-call-duration" class="p2p_call_duration hidden">00:00</div>
+ 				<div id="me" class="hidden"></div>
+ 				<div id="remote-media">
+ 					<div class="alert alert-info"><?php echo $wo['lang']['please_wait']?></div>
+@@ -16,7 +18,247 @@
+ 	</div>
+ </div>
+ 
+-<?php if ($wo['config']['agora_chat_video'] == 1) { ?>
++<?php if ($wo['config']['p2p_chat_video'] == 1) { ?>
++<?php
++// 兜底 ICE（可选，见 docs/CONFIGURATION.md）：Wo_Config 的 p2p_stun_fallback
++$p2p_ice_fallback = array();
++if (!empty($wo['config']['p2p_stun_fallback'])) {
++    $p2p_ice_fallback[] = array('urls' => $wo['config']['p2p_stun_fallback']);
++}
++// 前端文案统一取自语言库，避免硬编码
++$p2p_lang = array(
++    'call_ended'            => $wo['lang']['call_ended'],
++    'calling_desc'          => $wo['lang']['calling_desc'],
++    'media_access_failed'   => $wo['lang']['media_access_failed'],
++    'call_already_active'   => $wo['lang']['call_already_active'],
++    'call_component_failed' => $wo['lang']['call_component_failed'],
++    'call_connect_failed'   => $wo['lang']['call_connect_failed'],
++);
++?>
++<script>
++(function () {
++    var ROOM    = <?php echo json_encode($wo['incall']['room']); ?>;
++    var ROLE    = <?php echo (int) $wo['incall']['user']; ?>;   // 1 被叫 / 2 主叫
++    var PEER_ID = <?php echo isset($wo['incall']['in_call_user']['user_id']) ? (int) $wo['incall']['in_call_user']['user_id'] : 0; ?>;   // 对端 user_id：通话结束后把时长写进聊天记录用
++    var SITE    = <?php echo json_encode($wo['config']['site_url']); ?>;
++    // ICE：正常路径由 xhr/p2p_turn.php 下发「自建 coturn 的 STUN + TURN（临时账号）」（见本文件末尾的 $.get）。
++    // 这里的兜底列表来自 Wo_Config 的 p2p_stun_fallback（可留空）。
++    // 不要再写公共 STUN：stun.l.google.com 在大陆网络下不可达。
++    var ICE     = { iceServers: <?php echo json_encode($p2p_ice_fallback); ?> };
++    var L       = <?php echo json_encode($p2p_lang); ?>;
++    var peer = null, localStream = null, call = null, ended = false, retry = 0;
++    var dc = null, dcReady = false, leaving = false, hangingUp = false;
++    var PEER_SRC = '<?php echo $wo['config']['theme_url'];?>/javascript/peerjs.min.js?version=<?php echo $wo['config']['version'];?>';
++
++    // 本模块由 AJAX 注入到页面里，靠 jQuery 注入外部 <script src> 不可靠，
++    // 因此在这里用 DOM 方式自己加载 PeerJS，并给出可见的失败提示。
++    function loadPeer(cb) {
++        if (window.Peer) { cb(true); return; }
++        var s = document.createElement('script');
++        s.src = PEER_SRC;
++        s.onload = function () { cb(!!window.Peer); };
++        s.onerror = function () { cb(false); };
++        document.head.appendChild(s);
++    }
++
++    function log(m) { if (window.console) { console.log('[P2P-Audio] ' + m); } }
++    function note(m) { $('#remote-media').html('<div class="alert alert-info">' + m + '</div>'); }
++
++    // ---- 通话时长：媒体接通（听到对方声音）后开始计时，挂断/结束时停表 ----
++    var timerTick = null, timerStart = 0;
++    function fmtDuration(sec) {
++        var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
++        function pad(n) { return (n < 10 ? '0' : '') + n; }
++        return (h > 0 ? pad(h) + ':' : '') + pad(m) + ':' + pad(s);   // 满 1 小时才显示时位
++    }
++    function startCallTimer() {
++        if (timerTick) { return; }
++        timerStart = Date.now();
++        $('#p2p-call-duration').text('00:00').removeClass('hidden');
++        timerTick = setInterval(function () {
++            $('#p2p-call-duration').text(fmtDuration(Math.floor((Date.now() - timerStart) / 1000)));
++        }, 1000);
++        log('通话计时开始');
++    }
++    function stopCallTimer() {
++        if (timerTick) { clearInterval(timerTick); timerTick = null; }
++    }
++
++    // ---- 通话结束后把时长写进聊天记录（xhr/call_log.php -> 一条 type_two=call_log 的消息）----
++    // 只有"通话真正接通"（已开始计时）才记录；双方都会上报，服务端用房间号去重成一条。
++    var logged = false;
++    function callSeconds() {
++        return timerStart ? Math.max(0, Math.round((Date.now() - timerStart) / 1000)) : 0;
++    }
++    function reportCallLog(cb) {
++        var secs = callSeconds();
++        if (logged || !secs || !PEER_ID) { cb(); return; }
++        logged = true;
++        var finished = false;
++        function finish() { if (!finished) { finished = true; cb(); } }
++        try {
++            $.get(Wo_Ajax_Requests_File(), { f: 'call_log', to_id: PEER_ID, room: ROOM, duration: secs }).always(finish);
++        } catch (e) { finish(); }
++        setTimeout(finish, 1500);   // 网络慢时最多等 1.5 秒，不拖住离开/关闭弹窗
++    }
++
++    function cleanup(redirect) {
++        if (ended) { return; }
++        ended = true;
++        stopCallTimer();
++        try { if (dc && dc.open) { dc.close(); } } catch (e) {}
++        try { if (call) { call.close(); } } catch (e) {}
++        try { if (peer) { peer.destroy(); } } catch (e) {}
++        if (localStream) { localStream.getTracks().forEach(function (t) { t.stop(); }); }
++        if (redirect) { window.location.href = SITE; }
++    }
++    // 短促提示音（结束通话用，不依赖额外音频文件）
++    function beep() {
++        try {
++            var Ctx = window.AudioContext || window.webkitAudioContext;
++            if (!Ctx) { return; }
++            var ctx = new Ctx(), o = ctx.createOscillator(), g = ctx.createGain();
++            o.type = 'sine'; o.frequency.value = 660; g.gain.value = 0.12;
++            o.connect(g); g.connect(ctx.destination);
++            o.start();
++            setTimeout(function () { try { o.stop(); ctx.close(); } catch (e) {} }, 350);
++        } catch (e) {}
++    }
++    // 对方挂断：提示 + 提示音，随后回到站点
++    function remoteHangup() {
++        if (ended || leaving) { return; }
++        leaving = true;
++        log('对方已挂断');
++        note(L.call_ended);
++        beep();
++        setTimeout(function () { reportCallLog(function () { cleanup(true); }); }, 1200);
++    }
++    // 数据通道：挂断时发 bye 通知对端（PeerJS 的媒体连接不会通知对端）
++    function bindData(conn) {
++        dc = conn;
++        conn.on('open', function () { dcReady = true; });
++        conn.on('data', function (d) { if (d && d.bye) { remoteHangup(); } });
++        conn.on('close', function () { if (dcReady) { remoteHangup(); } });
++        conn.on('error', function (e) { log('data error ' + e); });
++    }
++    function openData(id) {
++        if (!id || !peer) { return; }
++        try { bindData(peer.connect(id, { reliable: true })); } catch (e) { log('data connect failed'); }
++    }
++    // 本地挂断：先发 bye，再清理
++    function hangup() {
++        try { if (dc && dc.open) { dc.send({ bye: 1 }); } } catch (e) {}
++        $.get(Wo_Ajax_Requests_File(), { f: 'cancel_call' }, function () {});
++        reportCallLog(function () { cleanup(true); });
++    }
++    // ICE 兜底：对端关闭页面/断网时媒体连接会变成 disconnected，PeerJS 自身不处理该状态
++    function watchIce(c) {
++        var pc = c.peerConnection;
++        if (!pc) { return; }
++        function check() {
++            if (ended) { return; }
++            var s = pc.connectionState || pc.iceConnectionState;
++            log('ICE 状态: ' + s);   // 连接卡住时可从控制台看到具体阶段
++            if (s === 'failed' || s === 'closed') {
++                remoteHangup();
++            } else if (s === 'disconnected') {
++                setTimeout(function () {
++                    if (ended) { return; }
++                    var s2 = pc.connectionState || pc.iceConnectionState;
++                    if (s2 !== 'connected' && s2 !== 'completed') { remoteHangup(); }
++                }, 5000);
++            }
++        }
++        try {
++            // 用 addEventListener，避免覆盖 PeerJS 内部的 oniceconnectionstatechange
++            pc.addEventListener('iceconnectionstatechange', check);
++            pc.addEventListener('connectionstatechange', check);
++        } catch (e) {}
++    }
++    function bind(c) {
++        call = c;
++        openData(c.peer);
++        watchIce(c);
++        c.on('stream', function (remote) {
++            log('媒体通道已建立');
++            $('#remote-media').html('<div class="alert alert-success"><?php echo $wo['lang']['audio_call'];?></div><audio id="p2p-remote-audio" autoplay></audio>');
++            var a = document.getElementById('p2p-remote-audio');
++            a.srcObject = remote;
++            var p = a.play();
++            if (p && p.catch) { p.catch(function () {}); }
++            startCallTimer();   // 听到对方声音：开始显示通话时长
++        });
++        c.on('close', function () { remoteHangup(); });
++        c.on('error', function (e) { log('call error ' + e); });
++    }
++    function makePeer(id, cb) {
++        if (typeof Peer === 'undefined') {   // 通话组件没加载出来，明确告知而不是静默失败
++            log('通话组件(PeerJS)未加载');
++            note(L.call_component_failed);
++            return;
++        }
++        // 信令走自建服务：wss://<站点域名>/peerjs → Apache 反代到本机 127.0.0.1:9000（systemd 服务 peerjs）
++        // 不再使用公共云 0.peerjs.com：大陆网络下它经常很慢甚至连不上，表现就是通话一直停在"请稍候"
++        peer = new Peer(id, { host: location.hostname, port: (location.protocol === 'https:' ? 443 : 80), secure: (location.protocol === 'https:'), key: 'peerjs', path: '/', config: ICE });
++        peer.on('open', function () { log('信令已连接'); if (cb) { cb(); } });
++        peer.on('call', function (c) { log('收到对方的呼叫'); c.answer(localStream); bind(c); });
++        peer.on('connection', function (conn) { bindData(conn); });
++        peer.on('error', function (e) {
++            var t = (e && e.type) ? e.type : 'unknown';
++            log('peer error ' + t);
++            if (t === 'peer-unavailable' && ROLE === 1 && retry < 20) {
++                retry++;
++                log('对方未在信令服务器上，第 ' + retry + ' 次重试');
++                setTimeout(join, 2000);   // 对端信令还没登记好，稍后重试
++                return;
++            }
++            if (t === 'unavailable-id' && ROLE === 2) { note(L.call_already_active); return; }
++            if (t === 'peer-unavailable') { note(L.call_connect_failed + ' (peer-unavailable)'); return; }
++            note(L.call_connect_failed + ': ' + t);   // 其余信令错误直接显示出来
++        });
++        peer.on('disconnected', function () { try { peer.reconnect(); } catch (e) {} });
++    }
++    function own() { makePeer(ROOM, function () { note(L.calling_desc); }); }
++    function join() {
++        if (ended) { return; }
++        if (!peer || peer.destroyed) {
++            makePeer(null, function () { var c = peer.call(ROOM, localStream); if (c) { bind(c); } });
++        } else {
++            var c2 = peer.call(ROOM, localStream);
++            if (c2) { bind(c2); }
++        }
++    }
++    function start() {
++        navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(function (s) {
++            localStream = s;
++            $('#me').removeClass('hidden');
++            if (ROLE === 2) { own(); } else { join(); }
++        }).catch(function (e) { log('麦克风不可用: ' + e.name); note(L.media_access_failed + '（' + e.name + '）'); });
++    }
++    // 挂断按钮：本模板第 13 行的 inline onclick（Wo_CloseCall）会先把按钮置为 disabled，
++    // 而 jQuery 的 click 委托会跳过 disabled 元素，因此这里用 pointerdown/mousedown 兜底，
++    // 保证 hangup()（发 bye + cancel_call）一定会执行，对端才能立刻收到"已挂断"。
++    function doHangup() {
++        if (hangingUp) { return; }
++        hangingUp = true;
++        hangup();
++    }
++    $(document).on('pointerdown mousedown click', '.decline-call', doHangup);
++    // 关闭/离开页面时也要通知对端（用户已挂断的话 hangingUp 为真，无需重复）
++    $(window).on('beforeunload', function () { if (!hangingUp) { hangup(); } });
++
++    function boot() {
++        // 先确保 PeerJS 就绪再开始，否则会静默卡住、界面上没有任何反应
++        loadPeer(function (ok) {
++            if (ok) { start(); } else { log('通话组件(PeerJS)加载失败'); note(L.call_component_failed); }
++        });
++    }
++    $.get(Wo_Ajax_Requests_File(), { f: 'p2p_turn' }, function (d) {
++        if (d && d.servers && d.servers.length) { ICE.iceServers = ICE.iceServers.concat(d.servers); log('TURN 已就绪'); }
++    }).done(boot).fail(boot);
++})();
++</script>
++<?php } elseif ($wo['config']['agora_chat_video'] == 1) { ?>
+   <script type="text/javascript">
+     navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+     if (!navigator.getUserMedia) {

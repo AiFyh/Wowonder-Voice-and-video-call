@@ -1,0 +1,82 @@
+[
+  {
+    "file": "admin-panel/pages/video-settings/content.phtml",
+    "patch": "0001-admin-panel_pages_video-settings_content.phtml.patch",
+    "baseline_md5": "d69dc144d78ab3a6d65ef67116670518",
+    "target_md5": "40314a33a3d7d13a9befadae8a968690",
+    "baseline_source": "<DEMO_PRistine>/admin-panel/pages/video-settings/content.phtml",
+    "hunks": 2
+  },
+  {
+    "file": "xhr/create_new_video_call.php",
+    "patch": "0002-xhr_create_new_video_call.php.patch",
+    "baseline_md5": "0ebd63a3a99fc2e2d4c3cf15f0f4d0d4",
+    "target_md5": "9e108e59add67e8abda4639050594066",
+    "baseline_source": "<DEMO_PRistine>/xhr/create_new_video_call.php",
+    "hunks": 1
+  },
+  {
+    "file": "xhr/create_new_audio_call.php",
+    "patch": "0003-xhr_create_new_audio_call.php.patch",
+    "baseline_md5": "bfd07abc6715eb160d08fc1285611d3d",
+    "target_md5": "4a34816a3611a36cf296d54f494a781f",
+    "baseline_source": "<DEMO_PRistine>/xhr/create_new_audio_call.php",
+    "hunks": 1
+  },
+  {
+    "file": "themes/Sean/layout/video/content.phtml",
+    "patch": "0004-themes_Sean_layout_video_content.phtml.patch",
+    "baseline_md5": "86e7efa20220dd19c751774a52a7b1d5",
+    "target_md5": "c9d551cc024b818a48b7b57dc9233a3a",
+    "baseline_source": "<SITE>/themes/Seanq/layout/video/content.phtml",
+    "hunks": 2
+  },
+  {
+    "file": "themes/Sean/layout/modals/talking.phtml",
+    "patch": "0005-themes_Sean_layout_modals_talking.phtml.patch",
+    "baseline_md5": "67cdcd817738ed443225cb9294fd9d4f",
+    "target_md5": "a9d57bf417040b570fa295c534d99cfc",
+    "baseline_source": "<SITE>/themes/Seanq/layout/modals/talking.phtml",
+    "hunks": 2
+  },
+  {
+    "file": "themes/Sean/layout/messages/messages-text-list.phtml",
+    "patch": "0006-themes_Sean_layout_messages_messages-text-list.phtml.patch",
+    "baseline_md5": "bf0366c6d3b57f86deca8a31c3467920",
+    "target_md5": "2a187e60bb0409dc031db00da685cc6f",
+    "baseline_source": "<SITE>/themes/Seanq/layout/messages/messages-text-list.phtml",
+    "hunks": 1
+  },
+  {
+    "file": "themes/Sean/layout/chat/chat-list.phtml",
+    "patch": "0007-themes_Sean_layout_chat_chat-list.phtml.patch",
+    "baseline_md5": "5fea3bbef32553bea443ccb413dfe87f",
+    "target_md5": "07742b97409e40fa1db63bce61a9c55f",
+    "baseline_source": "<SITE>/themes/Seanq/layout/chat/chat-list.phtml",
+    "hunks": 1
+  },
+  {
+    "file": "themes/Sean/layout/chat/chat-tab.phtml",
+    "patch": "0008-themes_Sean_layout_chat_chat-tab.phtml.patch",
+    "baseline_md5": "c1cd7b11d38d1c9874fe5a4dac222da3",
+    "target_md5": "0e53de4a7d0c3ad9e8b2f1bea33e6f80",
+    "baseline_source": "<SITE>/themes/Seanq/layout/chat/chat-tab.phtml",
+    "hunks": 2
+  },
+  {
+    "file": "themes/Sean/layout/messages/content.phtml",
+    "patch": "0009-themes_Sean_layout_messages_content.phtml.patch",
+    "baseline_md5": "9f03c4ea5b4b7ce79e9f0741e481fa72",
+    "target_md5": "74f781492e5f8dc508da3e382ec276d8",
+    "baseline_source": "<SITE>/themes/Seanq/layout/messages/content.phtml",
+    "hunks": 2
+  },
+  {
+    "file": "themes/Sean/javascript/script.js",
+    "patch": "0010-themes_Sean_javascript_script.js.patch",
+    "baseline_md5": "bc7b0219ca6add28e6ec51f7026aa929",
+    "target_md5": "e84e86bb63043553b221ac00b7ba5e81",
+    "baseline_source": "<SITE>/themes/Seanq/javascript/script.js",
+    "hunks": 2
+  }
+]

@@ -1,0 +1,10 @@
+admin-panel/pages/video-settings/content.phtml	d69dc144d78ab3a6d65ef67116670518	0001-admin-panel_pages_video-settings_content.phtml.patch
+xhr/create_new_video_call.php	0ebd63a3a99fc2e2d4c3cf15f0f4d0d4	0002-xhr_create_new_video_call.php.patch
+xhr/create_new_audio_call.php	bfd07abc6715eb160d08fc1285611d3d	0003-xhr_create_new_audio_call.php.patch
+themes/Sean/layout/video/content.phtml	86e7efa20220dd19c751774a52a7b1d5	0004-themes_Sean_layout_video_content.phtml.patch
+themes/Sean/layout/modals/talking.phtml	67cdcd817738ed443225cb9294fd9d4f	0005-themes_Sean_layout_modals_talking.phtml.patch
+themes/Sean/layout/messages/messages-text-list.phtml	bf0366c6d3b57f86deca8a31c3467920	0006-themes_Sean_layout_messages_messages-text-list.phtml.patch
+themes/Sean/layout/chat/chat-list.phtml	5fea3bbef32553bea443ccb413dfe87f	0007-themes_Sean_layout_chat_chat-list.phtml.patch
+themes/Sean/layout/chat/chat-tab.phtml	c1cd7b11d38d1c9874fe5a4dac222da3	0008-themes_Sean_layout_chat_chat-tab.phtml.patch
+themes/Sean/layout/messages/content.phtml	9f03c4ea5b4b7ce79e9f0741e481fa72	0009-themes_Sean_layout_messages_content.phtml.patch
+themes/Sean/javascript/script.js	bc7b0219ca6add28e6ec51f7026aa929	0010-themes_Sean_javascript_script.js.patch

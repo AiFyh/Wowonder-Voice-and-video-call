@@ -1,0 +1,20 @@
+--- a/themes/Sean/layout/messages/content.phtml
++++ b/themes/Sean/layout/messages/content.phtml
+@@ -1047,7 +1047,7 @@
+ 				Wo_getMessageSeen();
+ 			<?php } ?>
+ 
+-			<?php if ($wo['config']['video_chat'] == 1 && ($wo['config']['twilio_video_chat'] == 1 || $wo['config']['agora_chat_video'] == 1)) {
++			<?php if ($wo['config']['video_chat'] == 1 && ($wo['config']['twilio_video_chat'] == 1 || $wo['config']['agora_chat_video'] == 1 || $wo['config']['p2p_chat_video'] == 1)) {
+ 				if ($wo['config']['can_use_video_call']) {
+ 			?>
+ 				if (data.video_call == 200) {
+@@ -1057,7 +1057,7 @@
+ 				}
+ 				$('#video-button').html(video_call);
+ 			<?php } } ?>
+-			<?php if ($wo['config']['audio_chat'] == 1 && ($wo['config']['twilio_video_chat'] == 1 || $wo['config']['agora_chat_video'] == 1)) {
++			<?php if ($wo['config']['audio_chat'] == 1 && ($wo['config']['twilio_video_chat'] == 1 || $wo['config']['agora_chat_video'] == 1 || $wo['config']['p2p_chat_video'] == 1)) {
+ 				if ($wo['config']['can_use_audio_call']) {
+ 			?>
+ 				if (data.audio_call == 200) {
